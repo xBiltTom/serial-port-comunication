@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,6 +17,8 @@ namespace ComunicacionRedes
         private Comunicacion enlace;
         private delegate void accesoControlRichTextBox(string msg);
         private accesoControlRichTextBox mostrarMensaje;
+        private int _siguienteCanal = 1; // Autoincremento de canal 1-5
+
         public Form1()
         {
             InitializeComponent();
@@ -33,6 +36,7 @@ namespace ComunicacionRedes
         private void Form1_Load(object sender, EventArgs e)
         {
             enlace.llegoMensaje += Enlace_llegoMensaje;
+            enlace.llegoArchivo += Enlace_llegoArchivo;
             cargarVelocidades();
             cargarPuertos();
             ActualizarEstadoUI(false);
@@ -41,12 +45,15 @@ namespace ComunicacionRedes
         private void cargarVelocidades()
         {
             cbxVelocidad.Items.Clear();
+            cbxVelocidad.Items.Clear();
             cbxVelocidad.Items.Add("9600");
             cbxVelocidad.Items.Add("19200");
             cbxVelocidad.Items.Add("38400");
             cbxVelocidad.Items.Add("57600");
             cbxVelocidad.Items.Add("115200");
-            cbxVelocidad.SelectedItem = "115200";
+            cbxVelocidad.Items.Add("1000000");   // NUEVO
+            cbxVelocidad.Items.Add("2000000");   // NUEVO
+            cbxVelocidad.SelectedItem = "1000000";
         }
 
         private void ActualizarInfoTrama()
@@ -236,6 +243,57 @@ namespace ComunicacionRedes
         private void cbxVelocidad_SelectedIndexChanged(object sender, EventArgs e)
         {
 
+        }
+
+        private void btnEnviarArchivo_Click(object sender, EventArgs e)
+        {
+            if (!enlace.estaConectado())
+            {
+                MessageBox.Show("Conéctese primero.", "Validación",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Verificar que haya canales disponibles (máximo 5 en paralelo)
+            if (_siguienteCanal > 5)
+            {
+                MessageBox.Show("Máximo 5 archivos en paralelo. Espere a que termine alguno.",
+                    "Canales llenos", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using (OpenFileDialog dialogo = new OpenFileDialog())
+            {
+                dialogo.Title = "Seleccionar archivo a enviar";
+                dialogo.Filter = "Todos los archivos (*.*)|*.*";
+
+                if (dialogo.ShowDialog() != DialogResult.OK) return;
+
+                int canal = _siguienteCanal++;
+
+                try
+                {
+                    enlace.iniciarEnvioArchivo(canal, dialogo.FileName);
+                    AgregarLinea($"SISTEMA: Enviando [{Path.GetFileName(dialogo.FileName)}]" +
+                                 $" en canal {canal}...");
+                }
+                catch (Exception ex)
+                {
+                    _siguienteCanal--; // Revertir si falló
+                    MessageBox.Show("Error al iniciar envío: " + ex.Message,
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void Enlace_llegoArchivo(string rutaFinal)
+        {
+            // Necesita Invoke porque viene del hilo DataReceived
+            Invoke(new Action(() =>
+            {
+                string nombre = Path.GetFileName(rutaFinal);
+                AgregarLinea($"SISTEMA: ✔ Archivo recibido [{nombre}] → {rutaFinal}");
+            }));
         }
     }
 }
