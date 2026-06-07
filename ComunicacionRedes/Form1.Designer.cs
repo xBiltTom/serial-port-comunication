@@ -46,9 +46,13 @@ namespace ComunicacionRedes
             this.lblEstado = new System.Windows.Forms.Label();
             this.lblInfoTrama = new System.Windows.Forms.Label();
             this.btnEnviarArchivo = new System.Windows.Forms.Button();
+            this.grpProgreso = new System.Windows.Forms.Panel();
+            this.lblCanalesLibres = new System.Windows.Forms.Label();
+            this.lstProgreso = new System.Windows.Forms.ListBox();
             this.grpConexion.SuspendLayout();
             this.grpConversacion.SuspendLayout();
             this.grpMensaje.SuspendLayout();
+            this.grpProgreso.SuspendLayout();
             this.SuspendLayout();
             // 
             // cbxPuertos
@@ -79,7 +83,7 @@ namespace ComunicacionRedes
             this.rtbMensajes.Location = new System.Drawing.Point(9, 9);
             this.rtbMensajes.Name = "rtbMensajes";
             this.rtbMensajes.ReadOnly = true;
-            this.rtbMensajes.Size = new System.Drawing.Size(557, 234);
+            this.rtbMensajes.Size = new System.Drawing.Size(557, 210);
             this.rtbMensajes.TabIndex = 2;
             this.rtbMensajes.Text = "";
             // 
@@ -198,7 +202,7 @@ namespace ComunicacionRedes
             this.grpConversacion.Controls.Add(this.rtbMensajes);
             this.grpConversacion.Location = new System.Drawing.Point(17, 69);
             this.grpConversacion.Name = "grpConversacion";
-            this.grpConversacion.Size = new System.Drawing.Size(574, 251);
+            this.grpConversacion.Size = new System.Drawing.Size(574, 227);
             this.grpConversacion.TabIndex = 10;
             // 
             // grpMensaje
@@ -208,7 +212,7 @@ namespace ComunicacionRedes
             this.grpMensaje.Controls.Add(this.btnLimpiar);
             this.grpMensaje.Controls.Add(this.btnEnviar);
             this.grpMensaje.Controls.Add(this.txtMensaje);
-            this.grpMensaje.Location = new System.Drawing.Point(17, 329);
+            this.grpMensaje.Location = new System.Drawing.Point(17, 305);
             this.grpMensaje.Name = "grpMensaje";
             this.grpMensaje.Size = new System.Drawing.Size(574, 90);
             this.grpMensaje.TabIndex = 11;
@@ -233,7 +237,7 @@ namespace ComunicacionRedes
             this.lblEstadoTitulo.AutoSize = true;
             this.lblEstadoTitulo.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.lblEstadoTitulo.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(100)))), ((int)(((byte)(100)))), ((int)(((byte)(100)))));
-            this.lblEstadoTitulo.Location = new System.Drawing.Point(22, 439);
+            this.lblEstadoTitulo.Location = new System.Drawing.Point(22, 518);
             this.lblEstadoTitulo.Name = "lblEstadoTitulo";
             this.lblEstadoTitulo.Size = new System.Drawing.Size(45, 15);
             this.lblEstadoTitulo.TabIndex = 12;
@@ -244,7 +248,7 @@ namespace ComunicacionRedes
             this.lblEstado.AutoSize = true;
             this.lblEstado.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.lblEstado.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(229)))), ((int)(((byte)(57)))), ((int)(((byte)(53)))));
-            this.lblEstado.Location = new System.Drawing.Point(65, 439);
+            this.lblEstado.Location = new System.Drawing.Point(65, 518);
             this.lblEstado.Name = "lblEstado";
             this.lblEstado.Size = new System.Drawing.Size(86, 15);
             this.lblEstado.TabIndex = 13;
@@ -255,7 +259,7 @@ namespace ComunicacionRedes
             this.lblInfoTrama.AutoSize = true;
             this.lblInfoTrama.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.lblInfoTrama.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(100)))), ((int)(((byte)(100)))), ((int)(((byte)(100)))));
-            this.lblInfoTrama.Location = new System.Drawing.Point(305, 439);
+            this.lblInfoTrama.Location = new System.Drawing.Point(305, 518);
             this.lblInfoTrama.Name = "lblInfoTrama";
             this.lblInfoTrama.Size = new System.Drawing.Size(28, 15);
             this.lblInfoTrama.TabIndex = 14;
@@ -264,20 +268,60 @@ namespace ComunicacionRedes
             // 
             // btnEnviarArchivo
             // 
-            this.btnEnviarArchivo.Location = new System.Drawing.Point(416, 55);
+            this.btnEnviarArchivo.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(56)))), ((int)(((byte)(142)))), ((int)(((byte)(60)))));
+            this.btnEnviarArchivo.FlatAppearance.BorderSize = 0;
+            this.btnEnviarArchivo.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnEnviarArchivo.Font = new System.Drawing.Font("Segoe UI", 8F, System.Drawing.FontStyle.Bold);
+            this.btnEnviarArchivo.ForeColor = System.Drawing.Color.White;
+            this.btnEnviarArchivo.Location = new System.Drawing.Point(9, 55);
             this.btnEnviarArchivo.Name = "btnEnviarArchivo";
             this.btnEnviarArchivo.Size = new System.Drawing.Size(141, 23);
             this.btnEnviarArchivo.TabIndex = 10;
-            this.btnEnviarArchivo.Text = "ENVIAR ARCHIVO";
-            this.btnEnviarArchivo.UseVisualStyleBackColor = true;
+            this.btnEnviarArchivo.Text = "ENVIAR ARCHIVOS";
+            this.btnEnviarArchivo.UseVisualStyleBackColor = false;
             this.btnEnviarArchivo.Click += new System.EventHandler(this.btnEnviarArchivo_Click);
+            // 
+            // 
+            // grpProgreso
+            // 
+            this.grpProgreso.BackColor = System.Drawing.Color.White;
+            this.grpProgreso.Controls.Add(this.lblCanalesLibres);
+            this.grpProgreso.Controls.Add(this.lstProgreso);
+            this.grpProgreso.Location = new System.Drawing.Point(17, 404);
+            this.grpProgreso.Name = "grpProgreso";
+            this.grpProgreso.Size = new System.Drawing.Size(574, 105);
+            this.grpProgreso.TabIndex = 15;
+            // 
+            // lblCanalesLibres
+            // 
+            this.lblCanalesLibres.AutoSize = true;
+            this.lblCanalesLibres.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblCanalesLibres.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(100)))), ((int)(((byte)(100)))), ((int)(((byte)(100)))));
+            this.lblCanalesLibres.Location = new System.Drawing.Point(9, 8);
+            this.lblCanalesLibres.Name = "lblCanalesLibres";
+            this.lblCanalesLibres.Size = new System.Drawing.Size(200, 15);
+            this.lblCanalesLibres.TabIndex = 0;
+            this.lblCanalesLibres.Text = "Envios en curso (5/5 canales libres)";
+            // 
+            // lstProgreso
+            // 
+            this.lstProgreso.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.lstProgreso.Font = new System.Drawing.Font("Segoe UI", 9F);
+            this.lstProgreso.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(60)))), ((int)(((byte)(60)))), ((int)(((byte)(60)))));
+            this.lstProgreso.FormattingEnabled = true;
+            this.lstProgreso.ItemHeight = 15;
+            this.lstProgreso.Location = new System.Drawing.Point(9, 28);
+            this.lstProgreso.Name = "lstProgreso";
+            this.lstProgreso.Size = new System.Drawing.Size(556, 75);
+            this.lstProgreso.TabIndex = 1;
             // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(242)))), ((int)(((byte)(245)))));
-            this.ClientSize = new System.Drawing.Size(609, 463);
+            this.ClientSize = new System.Drawing.Size(609, 545);
+            this.Controls.Add(this.grpProgreso);
             this.Controls.Add(this.lblInfoTrama);
             this.Controls.Add(this.lblEstado);
             this.Controls.Add(this.lblEstadoTitulo);
@@ -293,6 +337,8 @@ namespace ComunicacionRedes
             this.grpConversacion.ResumeLayout(false);
             this.grpMensaje.ResumeLayout(false);
             this.grpMensaje.PerformLayout();
+            this.grpProgreso.ResumeLayout(false);
+            this.grpProgreso.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -318,6 +364,9 @@ namespace ComunicacionRedes
         private System.Windows.Forms.Label lblInfoTrama;
         private System.Windows.Forms.Button btnLimpiar;
         private System.Windows.Forms.Button btnEnviarArchivo;
+        private System.Windows.Forms.Panel grpProgreso;
+        private System.Windows.Forms.Label lblCanalesLibres;
+        private System.Windows.Forms.ListBox lstProgreso;
     }
 }
 

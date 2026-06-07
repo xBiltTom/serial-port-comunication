@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
@@ -31,6 +31,9 @@ namespace ComunicacionRedes
         // Índice circular para el Round-Robin entre canales activos
         private int indiceRoundRobin = 0;
 
+        // Último porcentaje reportado por canal (para throttling del evento progresoEnvio)
+        private readonly Dictionary<int, int> ultimoPorcentaje = new Dictionary<int, int>();
+
         // ── RECEPCIÓN: FileStreams de escritura en disco ──────────────────
         // Clave: idCanal. Valor: contexto del archivo que se está recibiendo.
         private readonly Dictionary<int, ArchivoRecepcion> archivosRecibiendo
@@ -41,10 +44,16 @@ namespace ComunicacionRedes
         public event Action<string> llegoMensaje;
 
         /// <summary>
-        /// Se dispara cuando un archivo fue recibido y guardado completamente.
-        /// Devuelve la ruta final donde quedó guardado.
+        /// Se dispara cuando un archivo fue recibido completamente.
+        /// Pasa (rutaTemporal, nombreOriginal) para que la UI decida dónde guardarlo.
         /// </summary>
-        public event Action<string> llegoArchivo;
+        public event Action<string, string> llegoArchivo;
+
+        /// <summary>Se dispara cuando un archivo terminó de enviarse. Pasa el nombre del archivo.</summary>
+        public event Action<string> envioCompletado;
+
+        /// <summary>Se dispara con (nombreArchivo, porcentaje 0-100) para reportar progreso de envío.</summary>
+        public event Action<string, int> progresoEnvio;
 
         // ─────────────────────────────────────────────────────────────────
         //  CONSTRUCTOR
@@ -98,6 +107,17 @@ namespace ComunicacionRedes
 
         public bool estaConectado() => sPuerto.IsOpen;
 
+        /// <summary>
+        /// Devuelve cuántos canales de archivo están libres (máximo 5).
+        /// </summary>
+        public int ObtenerCanalesDisponibles()
+        {
+            lock (bloqueoEnvio)
+            {
+                return 5 - archivosActivos.Count;
+            }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         //  API PÚBLICA DE ENVÍO
         // ─────────────────────────────────────────────────────────────────
@@ -115,38 +135,53 @@ namespace ComunicacionRedes
         }
 
         /// <summary>
-        /// Inicia el envío de un archivo en el canal indicado (1-5).
+        /// Inicia el envío de un archivo asignando automáticamente un canal libre (1-5).
         /// Encola la trama 'I' (metadatos) y registra el FileStream
         /// para que el Round-Robin lo atienda de forma entrelazada.
+        /// Lanza InvalidOperationException si los 5 canales están ocupados.
         /// </summary>
-        public void iniciarEnvioArchivo(int idCanal, string rutaArchivo)
+        public void iniciarEnvioArchivo(string rutaArchivo)
         {
             if (!sPuerto.IsOpen)
                 throw new Exception("El puerto no está abierto.");
 
-            if (idCanal < 1 || idCanal > 5)
-                throw new ArgumentException("El ID de canal debe estar entre 1 y 5.");
+            int idCanal = -1;
 
             lock (bloqueoEnvio)
             {
-                if (archivosActivos.ContainsKey(idCanal))
-                    throw new Exception($"El canal {idCanal} ya tiene un archivo en curso.");
+                // Buscar el primer canal libre entre 1 y 5
+                for (int i = 1; i <= 5; i++)
+                {
+                    if (!archivosActivos.ContainsKey(i))
+                    {
+                        idCanal = i;
+                        break;
+                    }
+                }
+
+                if (idCanal == -1)
+                    throw new InvalidOperationException("Los 5 canales están ocupados. Espere a que termine algún envío.");
 
                 // Abrir stream de lectura del archivo
                 FileStream fs = new FileStream(
                     rutaArchivo, FileMode.Open, FileAccess.Read, FileShare.Read);
 
+                string nombreArchivo = Path.GetFileName(rutaArchivo);
+
                 archivosActivos[idCanal] = new ArchivoEnvio
                 {
                     Stream = fs,
                     IdCanal = idCanal,
-                    Terminado = false
+                    Terminado = false,
+                    NombreArchivo = nombreArchivo,
+                    TamañoTotal = fs.Length,
+                    BytesEnviados = 0
                 };
             }
 
             // Encolar trama de inicio con el nombre del archivo (alta prioridad)
-            string nombreArchivo = Path.GetFileName(rutaArchivo);
-            byte[] tramaInicio = gestorTrama.crearTramaInicio(idCanal, nombreArchivo);
+            string nombre = Path.GetFileName(rutaArchivo);
+            byte[] tramaInicio = gestorTrama.crearTramaInicio(idCanal, nombre);
             EnqueueAltaPrioridad(tramaInicio);
         }
 
@@ -238,6 +273,19 @@ namespace ComunicacionRedes
                 // Hay datos: construir fragmento 'A'
                 trama = gestorTrama.crearTramaFragmento(idCanal, buffer, leidos);
 
+                // Actualizar progreso de envío (con throttle: solo si cambia el porcentaje)
+                archivo.BytesEnviados += leidos;
+                int porcentaje = (archivo.TamañoTotal > 0)
+                    ? (int)((archivo.BytesEnviados * 100L) / archivo.TamañoTotal)
+                    : 100;
+
+                int lastPct;
+                if (!ultimoPorcentaje.TryGetValue(idCanal, out lastPct) || porcentaje != lastPct)
+                {
+                    ultimoPorcentaje[idCanal] = porcentaje;
+                    progresoEnvio?.Invoke(archivo.NombreArchivo, porcentaje);
+                }
+
                 // Avanzar al siguiente canal en la próxima iteración
                 indiceRoundRobin = (indiceRoundRobin + 1) % canales.Count;
             }
@@ -246,9 +294,14 @@ namespace ComunicacionRedes
                 // Archivo agotado: señalizar fin con trama 'F'
                 trama = gestorTrama.crearTramaFin(idCanal);
 
+                // Notificar que el envío se completó ANTES de liberar el canal
+                string nombreCompletado = archivo.NombreArchivo;
+                envioCompletado?.Invoke(nombreCompletado);
+
                 // Liberar recursos y eliminar del diccionario
                 archivo.Stream.Close();
                 archivosActivos.Remove(idCanal);
+                ultimoPorcentaje.Remove(idCanal);
 
                 // Encolar la trama 'F' como alta prioridad para que salga
                 // en la próxima iteración (garantía de entrega)
@@ -343,9 +396,8 @@ namespace ComunicacionRedes
             string nombreOriginal = Encoding.UTF8.GetString(
                 paquete.Datos, 0, paquete.LongitudDatos);
 
-            // Crear archivo temporal en la carpeta de descargas del usuario
-            string carpeta = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            carpeta = Path.Combine(carpeta, "Downloads");
+            // Crear archivo temporal en la carpeta temporal del sistema
+            string carpeta = Path.GetTempPath();
             string rutaTemp = Path.Combine(carpeta, $"canal_{id}_temp.bin");
 
             // Si ya había un archivo en ese canal, cerrar y descartar el anterior
@@ -387,12 +439,9 @@ namespace ComunicacionRedes
             recepcion.Stream.Close();
             archivosRecibiendo.Remove(id);
 
-            // Mover de nombre temporal a nombre original (evitar colisiones)
-            string rutaFinal = ObtenerRutaUnica(recepcion.Carpeta, recepcion.NombreOriginal);
-            File.Move(recepcion.RutaTemp, rutaFinal);
-
-            // Notificar a la UI
-            llegoArchivo?.Invoke(rutaFinal);
+            // NO mover automáticamente. Pasar la ruta temporal y el nombre
+            // original a la UI para que el usuario elija dónde guardarlo.
+            llegoArchivo?.Invoke(recepcion.RutaTemp, recepcion.NombreOriginal);
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -456,6 +505,9 @@ namespace ComunicacionRedes
             public FileStream Stream { get; set; }
             public int IdCanal { get; set; }
             public bool Terminado { get; set; }
+            public string NombreArchivo { get; set; }
+            public long TamañoTotal { get; set; }
+            public long BytesEnviados { get; set; }
         }
 
         /// <summary>Contexto de un archivo que se está recibiendo.</summary>

@@ -17,7 +17,6 @@ namespace ComunicacionRedes
         private Comunicacion enlace;
         private delegate void accesoControlRichTextBox(string msg);
         private accesoControlRichTextBox mostrarMensaje;
-        private int _siguienteCanal = 1; // Autoincremento de canal 1-5
 
         public Form1()
         {
@@ -37,6 +36,8 @@ namespace ComunicacionRedes
         {
             enlace.llegoMensaje += Enlace_llegoMensaje;
             enlace.llegoArchivo += Enlace_llegoArchivo;
+            enlace.progresoEnvio += Enlace_progresoEnvio;
+            enlace.envioCompletado += Enlace_envioCompletado;
             cargarVelocidades();
             cargarPuertos();
             ActualizarEstadoUI(false);
@@ -108,7 +109,8 @@ namespace ComunicacionRedes
 
         private void Enlace_llegoMensaje(string mensaje)
         {
-            Invoke(mostrarMensaje, "Otro: " + mensaje);
+            // BeginInvoke: no bloquea el hilo DataReceived
+            BeginInvoke(mostrarMensaje, "Otro: " + mensaje);
         }
 
         private void mostrandoMensaje(string mensaje)
@@ -254,46 +256,155 @@ namespace ComunicacionRedes
                 return;
             }
 
-            // Verificar que haya canales disponibles (máximo 5 en paralelo)
-            if (_siguienteCanal > 5)
-            {
-                MessageBox.Show("Máximo 5 archivos en paralelo. Espere a que termine alguno.",
-                    "Canales llenos", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
             using (OpenFileDialog dialogo = new OpenFileDialog())
             {
-                dialogo.Title = "Seleccionar archivo a enviar";
+                dialogo.Title = "Seleccionar archivos a enviar";
                 dialogo.Filter = "Todos los archivos (*.*)|*.*";
+                dialogo.Multiselect = true;
 
                 if (dialogo.ShowDialog() != DialogResult.OK) return;
 
-                int canal = _siguienteCanal++;
+                // Validación estricta: ¿hay suficientes canales libres para TODOS los archivos?
+                int canalesLibres = enlace.ObtenerCanalesDisponibles();
+                int archivosSeleccionados = dialogo.FileNames.Length;
 
-                try
+                if (archivosSeleccionados > canalesLibres)
                 {
-                    enlace.iniciarEnvioArchivo(canal, dialogo.FileName);
-                    AgregarLinea($"SISTEMA: Enviando [{Path.GetFileName(dialogo.FileName)}]" +
-                                 $" en canal {canal}...");
+                    MessageBox.Show(
+                        $"Seleccionó {archivosSeleccionados} archivo(s), pero solo quedan " +
+                        $"{canalesLibres} canal(es) libre(s).\n\n" +
+                        $"Reduzca la selección o espere a que terminen los envíos en curso.",
+                        "Canales insuficientes", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
                 }
-                catch (Exception ex)
+
+                // Hay espacio: iniciar envío de cada archivo
+                foreach (string ruta in dialogo.FileNames)
                 {
-                    _siguienteCanal--; // Revertir si falló
-                    MessageBox.Show("Error al iniciar envío: " + ex.Message,
-                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    try
+                    {
+                        enlace.iniciarEnvioArchivo(ruta);
+                        AgregarLinea($"SISTEMA: Enviando [{Path.GetFileName(ruta)}]...", true);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error al enviar [{Path.GetFileName(ruta)}]: " + ex.Message,
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
+
+                ActualizarLabelCanales();
             }
         }
 
-        private void Enlace_llegoArchivo(string rutaFinal)
+        private void Enlace_llegoArchivo(string rutaTemp, string nombreOriginal)
         {
-            // Necesita Invoke porque viene del hilo DataReceived
-            Invoke(new Action(() =>
+            // BeginInvoke: no bloquea el hilo DataReceived
+            BeginInvoke(new Action(() =>
             {
-                string nombre = Path.GetFileName(rutaFinal);
-                AgregarLinea($"SISTEMA: ✔ Archivo recibido [{nombre}] → {rutaFinal}");
+                using (SaveFileDialog saveDialog = new SaveFileDialog())
+                {
+                    saveDialog.Title = "Guardar archivo recibido";
+                    saveDialog.FileName = nombreOriginal;
+                    saveDialog.Filter = "Todos los archivos (*.*)|*.*";
+
+                    if (saveDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        try
+                        {
+                            // Si ya existe un archivo en el destino, eliminarlo primero
+                            if (File.Exists(saveDialog.FileName))
+                                File.Delete(saveDialog.FileName);
+
+                            File.Move(rutaTemp, saveDialog.FileName);
+                            AgregarLinea($"SISTEMA: ✔ Archivo recibido [{nombreOriginal}] → {saveDialog.FileName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Error al guardar archivo: " + ex.Message,
+                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            // Intentar limpiar el temporal
+                            try { if (File.Exists(rutaTemp)) File.Delete(rutaTemp); } catch { }
+                        }
+                    }
+                    else
+                    {
+                        // El usuario canceló: eliminar archivo temporal
+                        try { if (File.Exists(rutaTemp)) File.Delete(rutaTemp); } catch { }
+                        AgregarLinea($"SISTEMA: ✖ Archivo [{nombreOriginal}] descartado por el usuario.");
+                    }
+                }
             }));
+        }
+
+        // ── PROGRESO DE ENVÍO ──────────────────────────────────────────────
+
+        private void Enlace_progresoEnvio(string nombreArchivo, int porcentaje)
+        {
+            if (InvokeRequired)
+            {
+                // BeginInvoke: no bloquea el BucleEnvio — el hilo sigue enviando tramas
+                BeginInvoke(new Action(() => Enlace_progresoEnvio(nombreArchivo, porcentaje)));
+                return;
+            }
+
+            string prefijo = nombreArchivo + " — ";
+
+            // Buscar si ya existe una entrada para este archivo
+            int indice = -1;
+            for (int i = 0; i < lstProgreso.Items.Count; i++)
+            {
+                if (lstProgreso.Items[i].ToString().StartsWith(prefijo))
+                {
+                    indice = i;
+                    break;
+                }
+            }
+
+            string textoNuevo = $"{nombreArchivo} — {porcentaje}%";
+
+            if (indice >= 0)
+            {
+                // Actualizar in-place sin parpadeo
+                lstProgreso.Items[indice] = textoNuevo;
+            }
+            else
+            {
+                lstProgreso.Items.Add(textoNuevo);
+            }
+
+            ActualizarLabelCanales();
+        }
+
+        private void Enlace_envioCompletado(string nombreArchivo)
+        {
+            if (InvokeRequired)
+            {
+                // BeginInvoke: no bloquea el BucleEnvio al liberar un canal
+                BeginInvoke(new Action(() => Enlace_envioCompletado(nombreArchivo)));
+                return;
+            }
+
+            string prefijo = nombreArchivo + " — ";
+
+            // Eliminar la entrada del ListBox
+            for (int i = lstProgreso.Items.Count - 1; i >= 0; i--)
+            {
+                if (lstProgreso.Items[i].ToString().StartsWith(prefijo))
+                {
+                    lstProgreso.Items.RemoveAt(i);
+                    break;
+                }
+            }
+
+            AgregarLinea($"SISTEMA: ✔ Archivo enviado [{nombreArchivo}]", true);
+            ActualizarLabelCanales();
+        }
+
+        private void ActualizarLabelCanales()
+        {
+            int libres = enlace.ObtenerCanalesDisponibles();
+            lblCanalesLibres.Text = $"Envios en curso ({libres}/5 canales libres)";
         }
     }
 }
